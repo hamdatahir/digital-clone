@@ -1,0 +1,133 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI Clone of Hamda Tahir</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --ink:#17212b; --muted:#566370; --paper:#f3f5f7; --card:#ffffff; --line:#d5dbe1;
+    --accent:#0e7c7b; --accent-ink:#ffffff; --warn-bg:#ffe7a3; --warn-ink:#4a3500;
+    --bm25:#b4541a; --dense:#2b5fb4; --hybrid:#0e7c7b;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{ --ink:#e8edf1; --muted:#9aa8b5; --paper:#10161c; --card:#18212a; --line:#2c3844;
+      --accent:#37b5b3; --accent-ink:#06201f; --warn-bg:#5a4400; --warn-ink:#ffe7a3;
+      --bm25:#e68a4f; --dense:#6f9be6; --hybrid:#37b5b3; }
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.55 "IBM Plex Sans",system-ui,sans-serif}
+  .banner{background:var(--warn-bg);color:var(--warn-ink);text-align:center;padding:10px 16px;font-weight:600}
+  main{max-width:880px;margin:0 auto;padding:28px 18px 60px}
+  h1{font-size:1.7rem;margin:0 0 4px;font-weight:600}
+  .sub{color:var(--muted);margin:0 0 22px;max-width:62ch}
+  label.q{display:block;font-weight:500;margin-bottom:6px}
+  textarea{width:100%;min-height:84px;padding:12px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit;resize:vertical}
+  .row{display:flex;flex-wrap:wrap;gap:14px;align-items:center;margin:14px 0}
+  fieldset{border:0;padding:0;margin:0;display:flex;gap:6px;flex-wrap:wrap}
+  legend{font-weight:500;margin-bottom:6px;padding:0}
+  .seg input{position:absolute;opacity:0}
+  .seg span{display:inline-block;padding:7px 14px;border:1px solid var(--line);border-radius:999px;background:var(--card);cursor:pointer}
+  .seg input:checked + span{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+  .seg input:focus-visible + span, button:focus-visible, textarea:focus-visible, select:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+  select{padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--card);color:var(--ink);font:inherit}
+  button{padding:10px 22px;border:0;border-radius:8px;background:var(--accent);color:var(--accent-ink);font:inherit;font-weight:600;cursor:pointer}
+  button:disabled{opacity:.6;cursor:wait}
+  h2{font-size:1.05rem;margin:28px 0 8px}
+  #answer{background:var(--card);border:1px solid var(--line);border-left:5px solid var(--accent);border-radius:8px;padding:14px 16px;white-space:pre-wrap;min-height:56px}
+  #answer.error{border-left-color:#c0392b}
+  .chunk{background:var(--card);border:1px solid var(--line);border-radius:8px;margin-bottom:10px;padding:10px 14px}
+  .chunk header{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:space-between;font-size:.9rem}
+  .chunk .src{font-weight:600}
+  .scores{font-family:"IBM Plex Mono",monospace;font-size:.82rem;color:var(--muted)}
+  .scores .m-bm25{color:var(--bm25)} .scores .m-dense{color:var(--dense)}
+  details summary{cursor:pointer;color:var(--muted);margin-top:6px}
+  details p{margin:8px 0 0;white-space:pre-wrap}
+  #status{color:var(--muted);font-size:.88rem;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="banner" role="note">This is an AI clone, not the real person.</div>
+<main>
+  <h1>Ask the AI clone of Hamda Tahir</h1>
+  <p class="sub">It answers in first person, using only the documents I wrote about myself. If the answer is not in my notes, it says so.</p>
+
+  <label class="q" for="question">Your question</label>
+  <textarea id="question" maxlength="500" placeholder="e.g. What are you studying and what projects have you built?"></textarea>
+
+  <div class="row">
+    <fieldset>
+      <legend>Retrieval mode</legend>
+      <label class="seg"><input type="radio" name="mode" value="bm25"><span>BM25 only</span></label>
+      <label class="seg"><input type="radio" name="mode" value="dense"><span>Dense only</span></label>
+      <label class="seg"><input type="radio" name="mode" value="hybrid" checked><span>Hybrid (RRF)</span></label>
+    </fieldset>
+    <div>
+      <label for="topk" style="font-weight:500">Chunks</label><br>
+      <select id="topk"><option>3</option><option selected>4</option><option>5</option><option>6</option></select>
+    </div>
+  </div>
+  <button id="ask">Ask</button>
+
+  <h2>Answer</h2>
+  <div id="answer" aria-live="polite">Ask a question to get started.</div>
+
+  <h2>Retrieved chunks</h2>
+  <div id="chunks"><p class="scores">Nothing retrieved yet.</p></div>
+  <p id="status"></p>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const el = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+
+fetch("/api/info").then(r => r.json()).then(i => {
+  $("status").textContent = `${i.documents} documents, ${i.chunks} chunks indexed. Dense search: ${i.dense_ready ? "ready" : i.dense_note}. Language model: ${i.llm_ready ? "connected" : "not configured"}.`;
+}).catch(() => {});
+
+async function ask() {
+  const question = $("question").value.trim();
+  if (question.length < 2) { $("answer").textContent = "Type a question first."; return; }
+  const mode = document.querySelector('input[name="mode"]:checked').value;
+  const btn = $("ask"); btn.disabled = true; btn.textContent = "Thinking...";
+  $("answer").className = ""; $("answer").textContent = "Searching my notes...";
+  try {
+    const res = await fetch("/api/chat", { method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ question, mode, top_k: parseInt($("topk").value, 10) }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(typeof data.detail === "string" ? data.detail : "Something went wrong. Check your question and try again.");
+    $("answer").textContent = data.answer;
+    render(data.chunks, data.mode);
+  } catch (err) {
+    $("answer").className = "error"; $("answer").textContent = err.message;
+    $("chunks").replaceChildren(el("p", "scores", "No chunks to show."));
+  } finally { btn.disabled = false; btn.textContent = "Ask"; }
+}
+
+function render(chunks, mode) {
+  const box = $("chunks"); box.replaceChildren();
+  if (!chunks.length) { box.append(el("p", "scores", "No chunk matched any keyword. Try Dense or Hybrid mode.")); return; }
+  const label = { bm25: "BM25 score", dense: "cosine", hybrid: "RRF score" }[mode];
+  for (const c of chunks) {
+    const card = el("div", "chunk");
+    const head = el("header");
+    head.append(el("span", "src", `#${c.rank}  ${c.source}  (${c.chunk_id})`));
+    const s = el("span", "scores");
+    s.append(el("span", "", `${label}: ${c.score}  |  `));
+    s.append(el("span", "m-bm25", `BM25 ${c.bm25_score} (rank ${c.bm25_rank ?? "-"})`));
+    if (c.dense_score !== null) {
+      s.append(document.createTextNode("  "));
+      s.append(el("span", "m-dense", `Dense ${c.dense_score} (rank ${c.dense_rank ?? "-"})`));
+    }
+    head.append(s); card.append(head);
+    const d = el("details"); d.append(el("summary", "", "Show passage")); d.append(el("p", "", c.text)); card.append(d);
+    box.append(card);
+  }
+}
+$("ask").addEventListener("click", ask);
+$("question").addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) ask(); });
+</script>
+</body>
+</html>
